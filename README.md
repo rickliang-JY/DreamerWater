@@ -92,6 +92,12 @@ ckpt/、episodes/）+ `runs/<exp_id>/learning_curve_seed<N>.png`
 | 1 | −32.8 | **0.010 m** | 0.0066 m | ✅ PASS |
 | 2 | −52.2 | **0.050 m** | 0.0187 m | ✅ PASS |
 
+> **v0.1 动力学修正后重测（二次阻尼，SPEC_M2 勘误 4）**：3 seed 40k 步即通过判据——
+> final_dist 中位数 0.018 / 0.006 / 0.007 m，振荡 std ≈ 0。修正后任务更物理
+> （满推终端速度 surge 1.9 m/s、yaw 3.8 rad/s）。M2 对比以此为基准。
+> 注：eval 各 episode 的 final_dist 在同一 seed 内恒定（策略把载体停在固定小偏移处，
+> return 仍有 episode 间差异），记录为已知现象，疑似稳态偏差与位置/控制奖励权衡有关。
+
 判据（SPEC_M1 §2.4）：final_dist 中位数 < 0.3 m 且无持续振荡（std < 0.05 m）。
 学习曲线见 `docs/figures/m1_learning_curve_seed{0,1,2}.png`；
 eval 轨迹可用面板 B 回放（`runs/m1_sac_station_keeping/seed*/eval/episodes/`）。
