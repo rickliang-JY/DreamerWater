@@ -16,6 +16,19 @@ pytest tests/ -v
 marimo run notebooks/dynamics_playground.py
 ```
 
+## 轨迹回放（面板 B）
+
+```bash
+python scripts/record_demo_episodes.py     # 录制 10 条演示 episode 到 runs/demo/
+marimo run notebooks/episode_replay.py     # 回放：run 下拉框 + episode/时间步滑块
+```
+
+`uwm/eval/recorder.py` 提供 `EpisodeRecorder`（提案 §7.1 契约：`config.yaml` +
+追加写 `metrics.csv` + `episodes/ep_XXXX.npz`，含 t/eta/nu/action/reward）与
+`load_episode(path)` 读取函数。回放面板每 5s 轮询 run 目录，录制/训练进行中
+也能看到新 episode。演示数据中 ep 0–4 为随机策略（发散）、ep 5–9 为 PD 回正
+（收敛到原点）。
+
 ## 目录
 
 - `configs/vehicle/` — BlueROV2（主力载体）与 REMUS100（回归对照）水动力参数

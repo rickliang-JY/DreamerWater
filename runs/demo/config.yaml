@@ -1,0 +1,5 @@
+vehicle: bluerov2
+policy: half random / half PD-to-origin
+episodes: 10
+steps_per_episode: 200
+init_radius: 5.0

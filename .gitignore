@@ -2,3 +2,5 @@ uwm.egg-info/
 __pycache__/
 .pytest_cache/
 *.pyc
+runs/*
+!runs/demo/
