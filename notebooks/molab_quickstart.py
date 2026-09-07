@@ -1,15 +1,19 @@
 """UWM 项目 molab 审查入口（一键打开即审查）。
 
 在 molab 中打开本文件后，notebook 会：
-1. 自动从 GitHub 克隆 DreamerWater 仓库并 `pip install -e .`（自举，无需本地环境）
+1. 自动从 GitHub 克隆 DreamerWater 仓库（自举，无需本地环境）
 2. 实际运行全部 pytest 测试并展示结果
 3. 内嵌动力学交互面板（滑块调参看阶跃响应）
 4. 内嵌 episode 回放（随机 vs PD 策略轨迹对比）
 
-注意：uwm 是仓库内的本地包（不在 PyPI），因此本 notebook 不出现任何
-字面 `import uwm` 语句——统一在自举 cell 中安装后用 importlib 动态导入，
-避免 marimo/molab 的包管理器误把 uwm 当 PyPI 包安装。
-marimo 要求跨 cell 变量名唯一，未导出的局部变量一律下划线前缀。
+实现要点：
+- uwm 是仓库内的本地包（不在 PyPI），本 notebook 不出现任何字面
+  `import uwm` 语句——统一在自举 cell 中用 importlib 动态导入，
+  避免 marimo/molab 的包管理器误把 uwm 当 PyPI 包安装。
+- uwm 是纯 Python 包，克隆后直接 sys.path.insert 即可导入，
+  不用 pip install——规避 molab 的 uv 沙箱与系统 pip 环境错位。
+- pytest 子进程通过 PYTHONPATH 环境变量拿到仓库路径。
+- marimo 要求跨 cell 变量名唯一，未导出的局部变量一律下划线前缀。
 
 本地运行：marimo edit notebooks/molab_quickstart.py
 molab 打开：https://molab.marimo.io/github/rickliang-JY/DreamerWater/blob/main/notebooks/molab_quickstart.py
@@ -38,7 +42,7 @@ app = marimo.App()
 def _():
     import marimo as mo
 
-    # 仓库地址（molab 自举时会从这里克隆安装 uwm 包）
+    # 仓库地址（molab 自举时会从这里克隆）
     REPO_URL = "https://github.com/rickliang-JY/DreamerWater.git"
     REPO_BRANCH = "main"
     return REPO_BRANCH, REPO_URL, mo
@@ -48,22 +52,30 @@ def _():
 def _(REPO_BRANCH, REPO_URL, mo):
     import importlib
     import subprocess as _sp_boot
+    import sys
     from pathlib import Path
 
     work = Path("/tmp/uwm_repo")
     if not (work / "uwm").exists():
-        # 自举：克隆仓库并以可编辑模式安装 uwm 包（molab 容器有完整网络）
+        # 自举：克隆仓库（molab 容器有完整网络）
         _sp_boot.run(
             ["git", "clone", "-q", "-b", REPO_BRANCH, REPO_URL, str(work)], check=True
         )
-        _sp_boot.run(["pip", "install", "-q", "-e", str(work)], check=True)
+    else:
+        # 已存在则拉取最新（失败不致命，用本地缓存）
+        _sp_boot.run(["git", "-C", str(work), "pull", "-q"], check=False)
+
+    # uwm 是纯 Python 包：直接挂 sys.path 即可导入，无需 pip install
+    if str(work) not in sys.path:
+        sys.path.insert(0, str(work))
 
     # 动态导入本地包 uwm（不写字面 import，防止 molab 误判为 PyPI 依赖）
     Fossen3DOF = importlib.import_module("uwm.dynamics.fossen").Fossen3DOF
     load_episode = importlib.import_module("uwm.eval.recorder").load_episode
 
-    mo.md(f"✅ 仓库已克隆并安装到 `{work}`（{REPO_URL} @ {REPO_BRANCH}）")
-    return Fossen3DOF, load_episode, work
+    py_exec = sys.executable  # 当前内核解释器，供 pytest 子进程使用
+    mo.md(f"✅ 仓库已就绪：`{work}`（{REPO_URL} @ {REPO_BRANCH}）")
+    return Fossen3DOF, load_episode, py_exec, work
 
 
 @app.cell
@@ -94,15 +106,20 @@ def _(mo, work):
 
 
 @app.cell
-def _(mo, work):
+def _(mo, py_exec, work):
+    import os
     import subprocess as _sp_test
 
-    # 实际运行全部测试（审查的硬证据）
+    # 实际运行全部测试（审查的硬证据）。
+    # 用当前内核解释器 + PYTHONPATH 指向仓库，保证子进程环境与 notebook 一致。
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(work) + os.pathsep + env.get("PYTHONPATH", "")
     r = _sp_test.run(
-        ["python", "-m", "pytest", "tests/", "-p", "no:cacheprovider", "-q"],
+        [py_exec, "-m", "pytest", "tests/", "-p", "no:cacheprovider", "-q"],
         cwd=work,
         capture_output=True,
         text=True,
+        env=env,
     )
     tail = "\n".join((r.stdout + r.stderr).strip().splitlines()[-15:])
     mo.md(f"### pytest 实测\n```\n{tail}\n```")
