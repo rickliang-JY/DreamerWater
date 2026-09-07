@@ -1,5 +1,12 @@
 # UWM — 水下航行器世界模型（M0 最小切片）
 
+**☁️ 免安装在线审查（molab，点击即开）：**
+
+- [🚀 审查入口（自动克隆装环境 + 实跑 pytest + 内嵌双交互面板）](https://molab.marimo.io/github/rickliang-JY/DreamerWater/blob/main/notebooks/molab_quickstart.py)
+
+> molab 只镜像单个 notebook 文件，故审查入口内置了自举逻辑（从本仓库克隆安装）。
+> 面板 D/B（`notebooks/dynamics_playground.py`、`episode_replay.py`）需在本地仓库内运行。
+
 3-DOF Fossen 水平面动力学（torch.float64, RK4）+ gymnasium 定点悬停环境 +
 单元测试 + marimo 交互面板 D。单一事实来源见 `SPEC.md`。
 

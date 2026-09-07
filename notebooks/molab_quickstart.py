@@ -9,7 +9,7 @@
 对应 SPEC.md 的 M0 交付物审查路径。详细设计见仓库 README.md / SPEC.md。
 
 本地运行：marimo edit notebooks/molab_quickstart.py
-molab 打开：https://molab.marimo.io/github/<USER>/<REPO>/blob/main/notebooks/molab_quickstart.py
+molab 打开：https://molab.marimo.io/github/rickliang-JY/DreamerWater/blob/main/notebooks/molab_quickstart.py
 """
 
 # /// script
@@ -34,8 +34,8 @@ app = marimo.App()
 def _():
     import marimo as mo
 
-    # ⚠️ 仓库地址：推送到 GitHub 后把下面两行改成实际值（唯一需要改的地方）
-    REPO_URL = "https://github.com/YOUR_USER/uwm.git"  # TODO: 替换为实际仓库
+    # 仓库地址（molab 自举时会从这里克隆安装 uwm 包）
+    REPO_URL = "https://github.com/rickliang-JY/DreamerWater.git"
     REPO_BRANCH = "main"
     return REPO_BRANCH, REPO_URL, mo
 
