@@ -14,6 +14,8 @@ dependencies = [
     "pyyaml",
     "numpy",
     "matplotlib",
+    "ruamel.yaml",
+    "einops",
 ]
 
 [project.optional-dependencies]

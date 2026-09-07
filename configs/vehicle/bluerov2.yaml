@@ -27,6 +27,11 @@ mass: 11.5                       # kg，刚体质量
 added_mass: [5.5, 12.7, 0.12]    # [kg, kg, kg m^2]，|X_udot|, |Y_vdot|, |N_rdot|，对角
 inertia_z: 0.16                  # kg m^2，绕 z 轴转动惯量 Iz
 linear_damping: [4.03, 6.22, 0.07]  # [N s/m, N s/m, N m s/rad]，X_u, Y_v, N_r 正值，对角
+quadratic_damping: [13.7, 33.0, 0.8]  # v0.1 新增：[N s^2/m^2, N s^2/m^2, N m s^2/rad^2]
+# 二次阻尼（X_u|u|, Y_v|v|, N_r|r|，文献常用近似值）。
+# 加入原因（SPEC_M2 勘误 4）：纯线性阻尼下 yaw 终端转速 ~171 rad/s，
+# Coriolis 旋转耦合在显式 RK4 下持续放大 → 饱和动作 ~9.4s 数值爆炸 NaN。
+# 加入后终端速度：surge ~1.9 m/s，yaw ~3.8 rad/s（物理合理区间）。
 tau_max: [56.6, 56.6, 12.0]      # [N, N, N m]，水平面广义力限幅（推导见上方注释）
 current: [0.0, 0.0]              # [m/s, m/s]，NED 常值洋流（u_c, v_c），v0 取 0
 dt: 0.02                         # s，物理积分步长

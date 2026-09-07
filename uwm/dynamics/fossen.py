@@ -7,7 +7,13 @@
 
 动力学方程：
     eta_dot = J(psi) nu
-    M nu_dot + C(nu_rel) nu_rel + D nu_rel = tau
+    M nu_dot + C(nu_rel) nu_rel + D(nu_rel) nu_rel = tau
+
+    D(nu) = D_lin + D_quad |nu|（对角二次阻尼，v0.1 加入）。
+    v0.1 变更原因：仅线性阻尼时 yaw 通道终端转速 ~171 rad/s（N_r=0.07 过弱），
+    Coriolis 旋转耦合（纯虚特征值）在显式 RK4 下持续放大，饱和动作约 9.4s
+    后数值爆炸出 NaN（M2 DreamerV3 训练中三次复现）。二次阻尼把终端转速
+    压回 ~3.8 rad/s 的物理区间，同时增大衰减率使 RK4 稳定。详见 SPEC_M2 勘误 4。
 
 其中 nu_rel = nu - nu_c^body 为相对水流速度。v0 采用 Fossen 常值无旋流
 简化：惯性项不做精确流加速修正，C、D 中统一使用 nu_rel（见 SPEC §2.1）。
@@ -58,6 +64,9 @@ class Fossen3DOF:
         self.Minv = torch.linalg.inv(self.M)
         # D 线性阻尼对角阵（正值）
         self.D = torch.diag(torch.tensor(ld, dtype=_DTYPE))
+        # 二次阻尼系数（v0.1；缺省为 0 = 纯线性，兼容旧配置）
+        qd = [float(q) for q in cfg.get("quadratic_damping", [0.0, 0.0, 0.0])]
+        self.Dq = torch.tensor(qd, dtype=_DTYPE)
         # NED 常值洋流速度 [u_c, v_c]（m/s）
         self.current = torch.tensor(current, dtype=_DTYPE)
 
@@ -112,6 +121,8 @@ class Fossen3DOF:
         nu_rel = nu - self._current_body(psi)
         coriolis = (self.C(nu_rel) @ nu_rel.unsqueeze(-1)).squeeze(-1)
         damping = (self.D @ nu_rel.unsqueeze(-1)).squeeze(-1)
+        # D(nu)nu = D_lin nu + D_q |nu| * nu（逐分量二次项，对角假设）
+        damping = damping + self.Dq * nu_rel.abs() * nu_rel
         nu_dot = (self.Minv @ (tau - coriolis - damping).unsqueeze(-1)).squeeze(-1)
         return eta_dot, nu_dot
 

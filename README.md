@@ -99,8 +99,24 @@ eval 轨迹可用面板 B 回放（`runs/m1_sac_station_keeping/seed*/eval/episo
 **结论**：环境与奖励设计正确，SAC 基线确立。M2（DreamerV3）的对照基准：
 同等性能 = final_dist 中位数 ~0.01–0.05 m、return ~−33~−52 @ 120k 步。
 
-## 下一步（M2）
+## M2：DreamerV3 薄封装 + P1 探针
 
-接入 DreamerV3（薄封装 NM512/dreamerv3-torch）+ state 观测 + 同任务，
-同步执行 P4 horizon 扫描（提案 §8.1：水下 dt=0.1s/env step，H=15 仅覆盖 1.5s
-物理时间，需扫描 H×action_repeat 网格，这是正确性检查不是调参）。
+- 环境适配器 `third_party/dreamerv3-torch/envs/uwm.py`（gymnasium 5 元组 →
+  旧 gym 4 元组），`dreamer.py` 的 `make_env` 注册 `uwm_*` 前缀（`# UWM-PATCH`）；
+  驱动 `scripts/train_dreamer.py`，转接 `scripts/convert_dv3_episodes.py` +
+  `uwm/eval/wm_probes.py`（P1 开环想象误差）
+- 配置：`configs/exp/m2_dreamerv3_station_keeping.yaml`（正式 50k 步）与
+  `_smoke.yaml`（CPU 冒烟，~3.5 min）
+- 用法：
+  `python scripts/train_dreamer.py configs/exp/m2_dreamerv3_station_keeping_smoke.yaml`
+  （训练结束自动跑 convert + P1；重复执行即续训，上游 latest.pt 断点恢复）
+
+**P4 物理时间账**（SPEC_M2 §2.5）：imag_horizon 已在配置层可配
+（`dv3_overrides.imag_horizon`）。当前 H=15 × 0.1s/env step = **1.5s** 想象
+时长，而载体纵向时间常数 τ = M_11/D_11 = (11.5+5.5)/4.03 ≈ **4.2s**
+（SPEC_M2 文中按 17/4.03 的写法为 τ≈2.9s 的口径*），H=15 不足以覆盖一次
+完整的速度响应。**H=30（3.0s）是下一轮扫描的首要候选**，待算力到位后做
+H ∈ {15, 30, 45} 网格扫描（正确性检查，不是调参）。
+
+\* 若按裸质量 m/X_u = 11.5/4.03 ≈ 2.9s（SPEC_M2 口径）；含附加质量
+m+|X_udot| 则为 17/4.03 ≈ 4.2s。两种口径下 H=15（1.5s）都偏短，结论一致。
