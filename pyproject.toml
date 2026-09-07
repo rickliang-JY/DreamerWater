@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uwm"
+version = "0.1.0"
+description = "UWM — underwater world model, M0 minimal slice (3-DOF Fossen dynamics + gymnasium env)"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "gymnasium",
+    "marimo",
+    "pyyaml",
+    "numpy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["uwm*"]

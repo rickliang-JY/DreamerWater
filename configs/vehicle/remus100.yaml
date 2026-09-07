@@ -1,0 +1,35 @@
+# REMUS100 水平面 3-DOF 子集参数（SI 单位）—— 回归对照载体
+#
+# 来源：cybergalactic/PythonVehicleSimulator（MIT，Thor I. Fossen 维护）
+#   src/python_vehicle_simulator/vehicles/remus100.py
+# 取其 6-DOF 模型的水平面 (surge/sway/yaw) 3×3 子块：
+#   M3 = M[ [0,1,5] x [0,1,5] ]，D3 = diag(M_ii / T_i)，
+#   T_surge = 20 s, T_sway = 20 s, T_yaw = 1 s。
+# 由脚本 tests/fixtures/make_remus100_reference.py 从该类直接计算并核对。
+#
+# 数值推导（remus100.py 内公式）：
+#   m   = 4/3 * pi * rho * a * b^2 = 31.0294 kg   (rho=1026, a=0.8, b=0.095)
+#   Iz  = 1/5 * m * (a^2 + b^2)   = 4.0278 kg m^2 （r_bg 仅 z 向偏移，
+#         不影响水平面 3x3 子块，故子块对角）
+#   MA  = diag(m*k1, m*k2, k'*Iy) = diag(0.8389, 29.4376, 3.4262)（Lamb k 因子）
+#   M3  = MRB + MA = diag(31.8683, 60.4670, 7.4540)
+#   D3  = diag(M3_11/20, M3_22/20, M3_33/1)
+#
+# 免责说明（SPEC §3.2）：完整 remus100 模型还含升阻力、横流阻力、
+# D[0][0]/D[1][1] 的 exp(-3*U_r) 速度衰减及舵/桨执行器动力学，这些非线性
+# 耦合项不属于 3-DOF 线性子集，未纳入本配置；回归基准由同一组 M3/D3 生成。
+#
+# tau_max：REMUS100 为欠驱动载体（仅主推 + 舵），此处给出名义限幅仅供
+# env 切片使用：主推 1525 rpm 时 X_prop 约 120 N 量级；sway/yaw 不直接驱动，
+# 取小值占位。
+
+name: remus100
+dof: 3
+mass: 31.0293849758              # kg
+added_mass: [0.83890859, 29.43763662, 3.42621011]   # [kg, kg, kg m^2]
+inertia_z: 4.02776932            # kg m^2
+linear_damping: [1.59341468, 3.02335108, 7.45397943]  # [N s/m, N s/m, N m s/rad]
+tau_max: [120.0, 30.0, 30.0]     # [N, N, N m]，名义值（见注释）
+current: [0.0, 0.0]              # [m/s, m/s]
+dt: 0.02                         # s
+action_repeat: 5
