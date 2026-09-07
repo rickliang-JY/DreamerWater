@@ -1,12 +1,15 @@
 """UWM 项目 molab 审查入口（一键打开即审查）。
 
 在 molab 中打开本文件后，notebook 会：
-1. 自动从 GitHub 克隆 uwm 仓库并 `pip install -e .`（自举，无需本地环境）
+1. 自动从 GitHub 克隆 DreamerWater 仓库并 `pip install -e .`（自举，无需本地环境）
 2. 实际运行全部 pytest 测试并展示结果
 3. 内嵌动力学交互面板（滑块调参看阶跃响应）
 4. 内嵌 episode 回放（随机 vs PD 策略轨迹对比）
 
-对应 SPEC.md 的 M0 交付物审查路径。详细设计见仓库 README.md / SPEC.md。
+注意：uwm 是仓库内的本地包（不在 PyPI），因此本 notebook 不出现任何
+字面 `import uwm` 语句——统一在自举 cell 中安装后用 importlib 动态导入，
+避免 marimo/molab 的包管理器误把 uwm 当 PyPI 包安装。
+marimo 要求跨 cell 变量名唯一，未导出的局部变量一律下划线前缀。
 
 本地运行：marimo edit notebooks/molab_quickstart.py
 molab 打开：https://molab.marimo.io/github/rickliang-JY/DreamerWater/blob/main/notebooks/molab_quickstart.py
@@ -21,6 +24,7 @@ molab 打开：https://molab.marimo.io/github/rickliang-JY/DreamerWater/blob/mai
 #     "pyyaml",
 #     "matplotlib",
 #     "numpy",
+#     "pytest",
 # ]
 # ///
 
@@ -42,24 +46,30 @@ def _():
 
 @app.cell
 def _(REPO_BRANCH, REPO_URL, mo):
-    import subprocess
+    import importlib
+    import subprocess as _sp_boot
     from pathlib import Path
 
     work = Path("/tmp/uwm_repo")
-    if not work.exists():
+    if not (work / "uwm").exists():
         # 自举：克隆仓库并以可编辑模式安装 uwm 包（molab 容器有完整网络）
-        subprocess.run(["git", "clone", "-q", "-b", REPO_BRANCH, REPO_URL, str(work)], check=True)
-        subprocess.run(
-            ["pip", "install", "-q", "-e", str(work)], check=True
+        _sp_boot.run(
+            ["git", "clone", "-q", "-b", REPO_BRANCH, REPO_URL, str(work)], check=True
         )
+        _sp_boot.run(["pip", "install", "-q", "-e", str(work)], check=True)
+
+    # 动态导入本地包 uwm（不写字面 import，防止 molab 误判为 PyPI 依赖）
+    Fossen3DOF = importlib.import_module("uwm.dynamics.fossen").Fossen3DOF
+    load_episode = importlib.import_module("uwm.eval.recorder").load_episode
+
     mo.md(f"✅ 仓库已克隆并安装到 `{work}`（{REPO_URL} @ {REPO_BRANCH}）")
-    return (work,)
+    return Fossen3DOF, load_episode, work
 
 
 @app.cell
 def _(mo, work):
     mo.md(
-        f"""
+        """
     ## UWM — 水下机器人世界模型训练与观测框架（M0 审查）
 
     | 层 | 交付物 |
@@ -75,17 +85,20 @@ def _(mo, work):
     tree = sorted(
         str(p.relative_to(work))
         for p in work.rglob("*")
-        if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts
+        if p.is_file()
+        and ".git" not in p.parts
+        and "__pycache__" not in p.parts
+        and "egg-info" not in p.parts
     )
-    return mo.md("\n".join(f"- `{t}`" for t in tree)), (tree,)
+    return (mo.md("\n".join(f"- `{t}`" for t in tree)),)
 
 
 @app.cell
 def _(mo, work):
-    import subprocess
+    import subprocess as _sp_test
 
     # 实际运行全部测试（审查的硬证据）
-    r = subprocess.run(
+    r = _sp_test.run(
         ["python", "-m", "pytest", "tests/", "-p", "no:cacheprovider", "-q"],
         cwd=work,
         capture_output=True,
@@ -107,12 +120,11 @@ def _(mo):
 
 
 @app.cell
-def _(s_am, s_cur, s_xu, work):
-    import matplotlib.pyplot as plt
+def _(Fossen3DOF, s_am, s_cur, s_xu, work):
+    import matplotlib.pyplot as _plt_d
+    import numpy as np
     import torch
     import yaml
-
-    from uwm.dynamics.fossen import Fossen3DOF
 
     with open(work / "configs" / "vehicle" / "bluerov2.yaml") as f:
         vehicle_cfg = yaml.safe_load(f)
@@ -128,18 +140,19 @@ def _(s_am, s_cur, s_xu, work):
     dt = float(cfg["dt"])
     n = int(20.0 / dt)
     tau = torch.tensor([0.5 * cfg["tau_max"][0], 0.0, 0.0], dtype=torch.float64)
-    eta, nu = torch.zeros(3, dtype=torch.float64), torch.zeros(3, dtype=torch.float64)
-    nus = [nu.clone()]
-    for k in range(n):
-        eta, nu = fossen.step(eta, nu, tau if (k + 1) * dt >= 1.0 else tau * 0.0, dt)
-        nus.append(nu.clone())
-    import numpy as np
+    _eta, _nu = torch.zeros(3, dtype=torch.float64), torch.zeros(3, dtype=torch.float64)
+    nus = [_nu.clone()]
+    for _k in range(n):
+        _eta, _nu = fossen.step(
+            _eta, _nu, tau if (_k + 1) * dt >= 1.0 else tau * 0.0, dt
+        )
+        nus.append(_nu.clone())
 
     ts = np.arange(n + 1) * dt
     u = torch.stack(nus)[:, 0].numpy()
     tau_u = float((fossen.M[0, 0] / fossen.D[0, 0]).item())
 
-    fig, ax = plt.subplots(figsize=(7, 3.5))
+    fig, ax = _plt_d.subplots(figsize=(7, 3.5))
     ax.plot(ts, u, label="surge u (m/s)")
     ax.axvline(1.0 + tau_u, color="r", ls="--", label=f"analytic tau = {tau_u:.2f} s")
     ax.axvline(1.0, color="k", ls=":", alpha=0.4)
@@ -168,25 +181,27 @@ def _(mo, work):
 
 
 @app.cell
-def _(ep_slider, eps, t_slider, work):
+def _(ep_slider, eps, load_episode, t_slider):
     if ep_slider is not None:
-        import matplotlib.pyplot as plt
-
-        from uwm.eval.recorder import load_episode
+        import matplotlib.pyplot as _plt_b
 
         d = load_episode(eps[ep_slider.value])
-        k = min(t_slider.value, len(d["t"]) - 1)
-        eta = d["eta"]
+        _kk = min(t_slider.value, len(d["t"]) - 1)
+        _traj = d["eta"]
 
-        fig2, ax2 = plt.subplots(figsize=(5, 5))
-        ax2.plot(eta[: k + 1, 0], eta[: k + 1, 1], "b-", lw=1.5, label="traversed")
-        ax2.plot(eta[k:, 0], eta[k:, 1], "b-", alpha=0.2)
-        ax2.plot(eta[k, 0], eta[k, 1], "bo", ms=10, label=f"t={d['t'][k]:.1f}s")
+        fig2, ax2 = _plt_b.subplots(figsize=(5, 5))
+        ax2.plot(
+            _traj[: _kk + 1, 0], _traj[: _kk + 1, 1], "b-", lw=1.5, label="traversed"
+        )
+        ax2.plot(_traj[_kk:, 0], _traj[_kk:, 1], "b-", alpha=0.2)
+        ax2.plot(
+            _traj[_kk, 0], _traj[_kk, 1], "bo", ms=10, label=f"t={d['t'][_kk]:.1f}s"
+        )
         ax2.plot(0, 0, "r*", ms=15, label="goal")
         ax2.set_xlabel("x NED (m)")
         ax2.set_ylabel("y NED (m)")
         ax2.set_title(
-            f"ep {ep_slider.value} | return={float(d['reward'].sum()):.1f} | step {k}"
+            f"ep {ep_slider.value} | return={float(d['reward'].sum()):.1f} | step {_kk}"
         )
         ax2.grid(alpha=0.3)
         ax2.legend(loc="best", fontsize=8)
