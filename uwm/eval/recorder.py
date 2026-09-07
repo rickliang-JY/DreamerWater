@@ -24,18 +24,28 @@ class EpisodeRecorder:
 
     run_dir: 运行目录（如 runs/demo），不存在则创建。
     config:  任意可 yaml 序列化的配置字典，写入 run_dir/config.yaml。
+    resume:  断点续训模式——metrics.csv 已有内容时读取其表头直接追加
+             （不再重写表头），且不覆盖已有的 config.yaml。
     """
 
-    def __init__(self, run_dir: str | Path, config: dict):
+    def __init__(self, run_dir: str | Path, config: dict, resume: bool = False):
         self.run_dir = Path(run_dir)
         self.episodes_dir = self.run_dir / "episodes"
         self.episodes_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_path = self.run_dir / "metrics.csv"
 
-        with open(self.run_dir / "config.yaml", "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
+        config_path = self.run_dir / "config.yaml"
+        if not (resume and config_path.exists()):
+            with open(config_path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
 
         self._metric_fields: list[str] = ["step"]
+        # resume 且已有内容：以现有表头为准，首次 log 时跳过 writeheader
+        self._resume_with_header = False
+        if resume and self.metrics_path.exists() and self.metrics_path.stat().st_size > 0:
+            with open(self.metrics_path, encoding="utf-8") as f:
+                self._metric_fields = f.readline().strip().split(",")
+            self._resume_with_header = True
         self._metrics_file = open(  # noqa: SIM115 — 生命周期随对象
             self.metrics_path, "a", newline="", encoding="utf-8"
         )
@@ -49,13 +59,21 @@ class EpisodeRecorder:
         """
         row = {"step": step, **kv}
         if self._metrics_writer is None:
-            if self.metrics_path.exists() and self.metrics_path.stat().st_size > 0:
-                raise ValueError("metrics.csv 已存在内容，无法对齐表头，请换新 run_dir")
-            self._metric_fields = list(row.keys())
+            if self._resume_with_header:
+                # resume：表头已在文件中，校验键集合后直接追加
+                if set(row.keys()) != set(self._metric_fields):
+                    raise ValueError(
+                        f"指标键 {sorted(row.keys())} 与已有表头 {self._metric_fields} 不一致"
+                    )
+            else:
+                if self.metrics_path.exists() and self.metrics_path.stat().st_size > 0:
+                    raise ValueError("metrics.csv 已存在内容，无法对齐表头，请换新 run_dir")
+                self._metric_fields = list(row.keys())
             self._metrics_writer = csv.DictWriter(
                 self._metrics_file, fieldnames=self._metric_fields
             )
-            self._metrics_writer.writeheader()
+            if not self._resume_with_header:
+                self._metrics_writer.writeheader()
         if set(row.keys()) != set(self._metric_fields):
             raise ValueError(
                 f"指标键 {sorted(row.keys())} 与表头 {self._metric_fields} 不一致"

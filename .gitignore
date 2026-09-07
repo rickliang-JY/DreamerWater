@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 runs/*
 !runs/demo/
+!runs/demo/**

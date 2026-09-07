@@ -1,0 +1,18 @@
+# M1 实验配置：SAC 基线 × station_keeping（SPEC_M1 §2.2）
+exp_id: m1_sac_station_keeping
+vehicle: configs/vehicle/bluerov2.yaml
+task: {}                    # StationKeepingEnv 默认
+seeds: [0, 1, 2]
+total_steps: 120000         # 环境步（= 12000 物理秒 ÷ 0.1s/env step）
+eval_every: 10000           # 每 N 步跑一次确定性评估（10 episode）
+eval_episodes: 10
+record_ep_every: 20         # 每 20 个 episode 存一份 npz
+ckpt_every: 2000            # 每 N 步存一次 ckpt/latest.pt（分段续训用）
+sac:
+  hidden: 256
+  lr: 0.0003
+  gamma: 0.99
+  tau: 0.005
+  batch_size: 256
+  buffer_size: 200000
+  warmup_steps: 2000
