@@ -206,6 +206,7 @@ def _(get_proc, mo, work):
                         if "train_return" in _d:
                             _last_step, _last_tr = _d["step"], _d["train_return"]
                     _src = "dv3 eval_return"
+                    _ds = None
                     _progress = f"当前训练进度：**{_last_step} 步**" + (
                         f"，最近 train_return {_last_tr:.1f}" if _last_tr is not None else "（prefill 中）"
                     )
@@ -214,14 +215,19 @@ def _(get_proc, mo, work):
 
                     _rows = list(_csv_mod.DictReader(open(_csv)))
                     _agg = {}
+                    _aggd = {}
                     for _row in _rows:
                         if _row.get("is_eval") == "1":
                             _agg.setdefault(int(_row["env_steps"]), []).append(
                                 float(_row["return_"])
                             )
+                            _aggd.setdefault(int(_row["env_steps"]), []).append(
+                                float(_row["final_dist"])
+                            )
                     _xs = sorted(_agg)
                     _ys = [sum(_agg[_x]) / len(_agg[_x]) for _x in _xs]
-                    _src = "SAC eval return (mean of eval episodes)"
+                    _ds = [sum(_aggd[_x]) / len(_aggd[_x]) for _x in _xs]
+                    _src = "SAC eval (mean per eval point)"
                     if _rows:
                         _progress = (
                             f"当前训练进度：**{_rows[-1]['env_steps']} 步**，"
@@ -233,13 +239,26 @@ def _(get_proc, mo, work):
         if _xs:
             import matplotlib.pyplot as _plt
 
-            _f, _ax = _plt.subplots(figsize=(7, 3.2))
-            _ax.plot(_xs, _ys, "o-", ms=3)
-            _ax.set_xlabel("env steps")
-            _ax.set_ylabel("eval return")
-            _stage_ascii = _cur["stage"].encode("ascii", "replace").decode()
-            _ax.set_title(f"{_src} -- seed{_cur['seed']}")
-            _ax.grid(alpha=0.3)
+            if _ds:
+                _f, (_ax, _ax2) = _plt.subplots(1, 2, figsize=(10, 3.2))
+                _ax.plot(_xs, _ys, "o-", ms=3)
+                _ax.set_ylabel("eval return")
+                _ax.set_title(f"return -- seed{_cur['seed']}")
+                _ax2.plot(_xs, _ds, "s-", ms=3, color="darkred")
+                _ax2.axhline(0.3, color="gray", ls="--", lw=1)
+                _ax2.set_ylabel("final_dist (m)")
+                _ax2.set_title("final distance vs steps (threshold=0.3m)")
+                _ax2.grid(alpha=0.3)
+                for _a in (_ax, _ax2):
+                    _a.set_xlabel("env steps")
+                    _a.grid(alpha=0.3)
+            else:
+                _f, _ax = _plt.subplots(figsize=(7, 3.2))
+                _ax.plot(_xs, _ys, "o-", ms=3)
+                _ax.set_xlabel("env steps")
+                _ax.set_ylabel("eval return")
+                _ax.set_title(f"{_src} -- seed{_cur['seed']}")
+                _ax.grid(alpha=0.3)
             _f.tight_layout()
             _fig_out = _f
         if _rc is None:
