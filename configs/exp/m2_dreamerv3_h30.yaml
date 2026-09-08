@@ -1,0 +1,39 @@
+# M2：DreamerV3（dmc_proprio 路线，state 观测）station_keeping 正式配置
+# SPEC_M2 §2.2；基于上游 dmc_proprio preset 按 CPU 预算缩小
+exp_id: m2_dreamerv3_h30
+seeds: [0]
+vehicle: configs/vehicle/bluerov2.yaml
+task: {}
+dv3_overrides:
+  task: uwm_station_keeping
+  logdir: runs/m2_dreamerv3_h30/seed0/dv3_logdir
+  steps: 20000
+  eval_every: 4000
+  log_every: 500
+  eval_episode_num: 5
+  prefill: 1000
+  envs: 1
+  action_repeat: 1          # 环境内部已 action_repeat=5（0.1s/env step），不再叠加
+  time_limit: 500
+  size: [16, 16]            # image 仅为上游数据管线占位哑数据（不参与编解码），小尺寸省内存
+  device: cpu
+  compile: false
+  precision: 32
+  train_ratio: 64          # 上游默认 512，CPU 降档
+  batch_size: 8
+  batch_length: 32
+  # 小网络
+  dyn_hidden: 128
+  dyn_deter: 128
+  dyn_stoch: 16
+  dyn_discrete: 16
+  units: 128
+  imag_horizon: 30
+  # 稳定性（实测两次发散出 NaN，见 SPEC_M2 勘误 3）：收紧梯度裁剪 + 降模型 lr
+  grad_clip: 100
+  model_lr: 0.00005          # P4：做成可配，扫描时改这里
+  encoder: {mlp_keys: 'state', cnn_keys: '$^', mlp_layers: 2, mlp_units: 256}
+  decoder: {mlp_keys: 'state', cnn_keys: '$^', mlp_layers: 2, mlp_units: 256}
+  video_pred_log: false
+  reward_EMA: true
+seed: 0
