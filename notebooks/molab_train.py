@@ -166,6 +166,7 @@ def _(btn_stop, get_proc, mo, set_proc):
 @app.cell
 def _(get_proc, mo, work):
     import json as _json
+    import os as _osm
 
     refresh = mo.ui.refresh(default_interval="5s")
     refresh  # 触发轮询
@@ -173,40 +174,62 @@ def _(get_proc, mo, work):
     _cur = get_proc()
     _fig_out = None
     _info = "尚未开始训练。"
+    _logtail = ""
+    _progress = ""
+
+    # 日志尾部（无论是否在跑都显示，出错第一时间可见）
+    _logf = work / "runs" / "molab_train.log"
+    if _logf.exists():
+        _lines = open(_logf).read().strip().splitlines()
+        _logtail = "\n".join(_lines[-8:])
+
     if _cur is not None:
+        _rc = _cur["popen"].poll()
+        if _rc is not None and _rc != 0:
+            _info = f"⚠️ **训练进程已退出（code {_rc}）**——错误见下方日志尾部"
         import glob as _glob
 
-        # 定位 run 目录：SAC 与 dv3 的 metrics 位置不同
         _runs = sorted(_glob.glob(str(work / "runs" / "*" / f"seed{_cur['seed']}")))
         _xs, _ys, _src = [], [], None
         if _runs:
             _rd = _runs[0]
-            import os as _osm
-
             _csv = f"{_rd}/metrics.csv"
             _jsonl = f"{_rd}/dv3_logdir/metrics.jsonl"
             try:
                 if _cur["stage"].startswith(("M2", "M4")) and _osm.path.exists(_jsonl):
+                    _last_step, _last_tr = 0, None
                     for _l in open(_jsonl):
                         _d = _json.loads(_l)
                         if "eval_return" in _d:
                             _xs.append(_d["step"])
                             _ys.append(_d["eval_return"])
+                        if "train_return" in _d:
+                            _last_step, _last_tr = _d["step"], _d["train_return"]
                     _src = "dv3 eval_return"
+                    _progress = f"当前训练进度：**{_last_step} 步**" + (
+                        f"，最近 train_return {_last_tr:.1f}" if _last_tr is not None else "（prefill 中）"
+                    )
                 elif _osm.path.exists(_csv):
                     import csv as _csv_mod
 
-                    for _row in _csv_mod.DictReader(open(_csv)):
+                    _rows = list(_csv_mod.DictReader(open(_csv)))
+                    for _row in _rows:
                         if _row.get("is_eval") == "1":
                             _xs.append(int(_row["env_steps"]))
                             _ys.append(float(_row["return_"]))
                     _src = "SAC eval return"
+                    if _rows:
+                        _progress = (
+                            f"当前训练进度：**{_rows[-1]['env_steps']} 步**，"
+                            f"最近 episode return {float(_rows[-1]['return_']):.1f}，"
+                            f"final_dist {float(_rows[-1]['final_dist']):.3f} m"
+                        )
             except Exception as _e:  # noqa: BLE001
                 _info = f"读取指标出错：{_e}"
         if _xs:
             import matplotlib.pyplot as _plt
 
-            _f, _ax = _plt.subplots(figsize=(7, 3.5))
+            _f, _ax = _plt.subplots(figsize=(7, 3.2))
             _ax.plot(_xs, _ys, "o-", ms=3)
             _ax.set_xlabel("env steps")
             _ax.set_ylabel("eval return")
@@ -214,10 +237,15 @@ def _(get_proc, mo, work):
             _ax.grid(alpha=0.3)
             _f.tight_layout()
             _fig_out = _f
-            _info = f"{_src}：{len(_xs)} 个评估点，最新 {_ys[-1]:.1f} @ {_xs[-1]} 步"
-        else:
-            _info = "等待第一个评估点（dv3 每 eval_every 步、SAC 每 10k 步）……"
-    mo.vstack([mo.md(f"### ② 实时曲线（5s 刷新）\n{_info}"), _fig_out or mo.md("")])
+        if _rc is None:
+            _info = _progress or "进程已启动，等待第一批数据写入……"
+    mo.vstack(
+        [
+            mo.md(f"### ② 训练状态（5s 刷新）\n{_info}"),
+            _fig_out or mo.md(""),
+            mo.md(f"**日志尾部**：\n```\n{_logtail or '（暂无）'}\n```"),
+        ]
+    )
     return ()
 
 
