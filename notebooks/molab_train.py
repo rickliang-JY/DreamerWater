@@ -138,10 +138,17 @@ def _(btn_start, mo, n_seed, n_steps, stage, stages, work):
             _yaml.safe_dump(_cfg, open(_tmp, "w"), allow_unicode=True)
             cmd = [_sys2.executable, "-u", str(work / script), str(_tmp),
                    "--seed", str(n_seed.value)]
-        _env = dict(_os.environ, OMP_NUM_THREADS="4", MKL_NUM_THREADS="4")
+        # 线程数留 2 核给 marimo 内核，否则 torch 打满 CPU 后 UI 会冻住
+        _env = dict(_os.environ, OMP_NUM_THREADS="2", MKL_NUM_THREADS="2")
         _log = open(work / "runs" / "molab_train.log", "a")
-        _p = _sp2.Popen(cmd, cwd=work, env=_env, stdout=_log, stderr=_log)
-        set_proc({"popen": _p, "stage": stage.value, "seed": n_seed.value})
+        _log.write(f"\n[molab] starting: {' '.join(cmd)}\n")
+        _log.flush()
+        try:
+            _p = _sp2.Popen(cmd, cwd=work, env=_env, stdout=_log, stderr=_log)
+            set_proc({"popen": _p, "stage": stage.value, "seed": n_seed.value})
+        except Exception as _e:  # noqa: BLE001
+            _log.write(f"[molab] LAUNCH FAILED: {_e}\n")
+            _log.flush()
     elif btn_start.value and get_proc() is not None:
         pass  # 已有训练在跑
 
@@ -380,6 +387,8 @@ def _(mo):
         """
     ---
     **提示**：① molab 会话断开 = 训练停止，长时间训练请保持页面开启（或把 runs 下载后到本地/GPU 续训）；
+    ①-b Dreamer 阶段点击后请给 1–2 分钟：要先 prefill 收集 1000 步随机数据，期间看"日志尾部"有
+    `Prefill dataset` 字样即正常（或把 runs 下载后到本地/GPU 续训）；
     ② Dreamer 阶段在 GPU 会话下自动用全量配置（200k 步），CPU 会话用降档配置（20k 步）；
     ③ 完整实验矩阵与正式流程见仓库 `scripts/gpu_run_all.sh` 与 README「GPU 全量复现实验指南」。
     """
