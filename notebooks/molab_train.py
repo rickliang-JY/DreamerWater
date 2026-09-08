@@ -304,28 +304,28 @@ def _(get_proc, load_episode, mo, work):
     import glob as _g3
 
     _cur = get_proc()
-    _ep_files = []
+    ep_files = []
     if _cur is not None:
-        _ep_files = sorted(
+        ep_files = sorted(
             _g3.glob(str(work / "runs" / "*" / f"seed{_cur['seed']}" / "episodes" / "*.npz"))
         )
-    if not _ep_files:
+    if not ep_files:
         mo.md("暂无可回放 episode（SAC 每 20 episode 存一份；dv3 请先点转换）")
         ep_s, t_s = None, None
     else:
-        ep_s = mo.ui.slider(0, len(_ep_files) - 1, step=1, value=len(_ep_files) - 1,
+        ep_s = mo.ui.slider(0, len(ep_files) - 1, step=1, value=len(ep_files) - 1,
                             label="episode（最新在右）")
         t_s = mo.ui.slider(0, 500, step=5, value=500, label="时间步")
         mo.hstack([ep_s, t_s])
-    return _ep_files, ep_s, t_s
+    return ep_files, ep_s, t_s
 
 
 @app.cell
-def _(ep_s, load_episode, t_s, _ep_files):
+def _(ep_s, load_episode, t_s, ep_files):
     if ep_s is not None:
         import matplotlib.pyplot as _plt2
 
-        _d = load_episode(_ep_files[ep_s.value])
+        _d = load_episode(ep_files[ep_s.value])
         _k = min(t_s.value, len(_d["t"]) - 1)
         _tr = _d["eta"]
         _f2, _ax2 = _plt2.subplots(figsize=(5, 5))
