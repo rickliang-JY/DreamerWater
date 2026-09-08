@@ -146,3 +146,18 @@ m+|X_udot| 则为 17/4.03 ≈ 4.2s。两种口径下 H=15（1.5s）都偏短，�
 **下一步优先级**：P4 horizon 扫描（H=30 首选）> 全量步数重训 > 多 seed。
 对比图：`docs/figures/m2_sac_vs_dreamerv3.png`；P1：`docs/figures/m2_p1_imagination_error.png`；
 eval 轨迹可用面板 B 回放 `runs/m2_dreamerv3_station_keeping/seed0/episodes/`。
+
+## P4 初扫结果（2026-09-07，H=15 vs H=30，seed0，对齐步数对比）
+
+**结论：horizon 不是当前瓶颈——算力（梯度更新量）才是。**
+
+- eval_return：H=15 与 H=30 在 0–10k 对齐区间均停在 −720~−780 平台，**无分离**——
+  把想象时长从 1.5s 加到 3.0s 并未解锁策略学习。§8.1 的"horizon 头号坑"假设
+  在此算力档位下**未被证实为主要约束**（有价值的负结果）。
+- P1：H=30 模型 imagination 误差 4.58@15步，高于 H=15 模型的 3.02——但注意
+  **混淆变量**：H=15 模型训了 20k 步、H=30 只有 10k 步，误差差异主要反映训练量
+  而非 horizon 本身。严格的多 seed 等步数网格（H∈{15,30,45}×3 seed）留待算力到位。
+- 图：`docs/figures/m2_p4_horizon_scan.png`
+
+**对路线图的修正**：优先级从"P4 扫描"调整为"**先解决等效更新量**"
+（全量步数 + 标准 train_ratio，或 GPU），horizon 网格在其后。
