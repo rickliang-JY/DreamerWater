@@ -1,0 +1,40 @@
+# M4 全量（GPU）：DreamerV3 dmc_proprio 标准档 × OU 时变洋流 × station_keeping
+# SPEC_M4 §3.2。与 m2_dreamerv3_gpu.yaml 的唯一差异：
+#   1) vehicle 换成 bluerov2_ou.yaml（OU 时变流，train_dreamer.py 据此设置
+#      UWM_VEHICLE_CFG 环境变量，dv3 适配器读取，见 SPEC_M4 §3.5）
+#   2) imag_horizon 15 → 30（P4 结论后的首选：H=30 × 0.1s = 3.0s 想象时长，
+#      更接近载体纵向时间常数 τ≈4.2s；OU 相关时间 10s 下时序推断更关键）
+# 训练产物中的 episode 含 current_gt 暗通道（洋流真值），训练结束后跑
+#   python -m uwm.eval.wm_probes runs/m4_dreamerv3_ou/seed<N> --p2
+# 即可得到 P2 隐状态洋流探针结果（无需策略收敛）。
+#
+# 资源估算：显存约 8–12 GB；时长单卡 RTX 级别约 1–2 天 / 200k 步；
+# 磁盘每 seed 约 2–5 GB。
+exp_id: m4_dreamerv3_ou
+seeds: [0, 1, 2]
+vehicle: configs/vehicle/bluerov2_ou.yaml
+task: {}
+dv3_overrides:
+  task: uwm_station_keeping
+  logdir: runs/m4_dreamerv3_ou/seed0/dv3_logdir
+  steps: 200000
+  eval_every: 10000
+  log_every: 1000
+  eval_episode_num: 10
+  prefill: 2500
+  envs: 1
+  action_repeat: 1
+  time_limit: 500
+  size: [16, 16]
+  device: cuda:0
+  compile: false
+  precision: 32
+  train_ratio: 512
+  batch_size: 16
+  batch_length: 64
+  imag_horizon: 30          # M4 首选（P4 结论；m2 GPU 复刻保持 15）
+  encoder: {mlp_keys: 'state', cnn_keys: '$^'}
+  decoder: {mlp_keys: 'state', cnn_keys: '$^'}
+  video_pred_log: false
+  reward_EMA: true
+seed: 0

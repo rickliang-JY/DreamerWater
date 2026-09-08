@@ -1,0 +1,42 @@
+# M2 全量复刻（GPU）：DreamerV3 dmc_proprio 标准档 × 常值流 × station_keeping
+# SPEC_M4 §3.1。与 CPU 降档版（m2_dreamerv3_station_keeping.yaml）的差异：
+# train_ratio/batch/dyn_*/units/encoder/decoder 全部回到上游 dmc_proprio
+# 标准档（dyn_*=512 档、units=512、encoder/decoder 5×1024），不再缩小。
+#
+# 资源估算（按 dv3 官方 dmc_proprio 量级）：
+#   显存：约 8–12 GB（batch 16×64、512 档 RSSM；RTX 3090/4090 单卡可跑）
+#   时长：200k 步 × train_ratio 512，单卡 RTX 级别约 1–2 天
+#   磁盘：每 seed 的 dv3_logdir 约 2–5 GB（train/eval episodes + ckpt）
+# 已知风险记录：M2 CPU 降档档曾三次 NaN（SPEC_M2 勘误 3），标准档未复现过；
+# NaN/encoder 金丝雀与 latest_prev.pt 轮转备份仍然生效，崩溃可从 ckpt 续训。
+exp_id: m2_dreamerv3_gpu
+seeds: [0, 1, 2]
+vehicle: configs/vehicle/bluerov2.yaml
+task: {}
+dv3_overrides:
+  task: uwm_station_keeping
+  logdir: runs/m2_dreamerv3_gpu/seed0/dv3_logdir
+  steps: 200000
+  eval_every: 10000
+  log_every: 1000
+  eval_episode_num: 10
+  prefill: 2500
+  envs: 1                   # 上游 dmc_proprio 为 4；本环境极便宜，瓶颈在 RSSM
+                            # 梯度更新而非采样，保持 1 与 M2 CPU 档一致
+  action_repeat: 1          # 环境内部已 action_repeat=5（0.1s/env step），不再叠加
+  time_limit: 500
+  size: [16, 16]            # image 仅为上游数据管线占位哑数据（不参与编解码）
+  device: cuda:0
+  compile: false            # 兼容性优先（SPEC_M4 §3.1）
+  precision: 32
+  train_ratio: 512          # 上游 dmc_proprio 标准档
+  batch_size: 16
+  batch_length: 64
+  # dyn_* 与 units 用上游默认（512 档）；encoder/decoder 用默认层（5×1024），
+  # 仅把键选择钉死在 state（current_gt 暗通道在结构上对模型不可见，§1.4）
+  imag_horizon: 15
+  encoder: {mlp_keys: 'state', cnn_keys: '$^'}
+  decoder: {mlp_keys: 'state', cnn_keys: '$^'}
+  video_pred_log: false
+  reward_EMA: true
+seed: 0

@@ -1,0 +1,47 @@
+# BlueROV2 水平面 3-DOF 水动力参数（SI 单位）
+#
+# 来源说明：
+#   任务指定从 GitHub 仓库 gokulp01/bluerov2_gym 提取参数。经核查，该仓库
+#   （bluerov2_gym/envs/core/dynamics.py）只包含一组无量纲归一化系数
+#   （a_vx=-0.5265, b_vx=1.2810 等，用于其自定义状态更新公式）与扰动统计量，
+#   并不包含 SI 单位的质量 / 附加质量 / 阻尼 / 推力限幅参数，无法直接换算。
+#   因此下列参数按任务约定采用文献中最常用的 BlueROV2 辨识值补全：
+#     - von Benzon et al., NTNU（inspera:181457231 附录 Table 2）：
+#       m = 11.5 kg, Ix = Iy = Iz = 0.16 kg m^2,
+#       X_udot = -5.5 kg, Y_vdot = -12.7 kg, N_rdot = -0.12 kg m^2
+#     - 线性阻尼采用同组文献常用值（Scaradozzi et al. 2024, Table 2 同）：
+#       X_u = 4.03 N s/m, Y_v = 6.22 N s/m, N_r = 0.07 N m s/rad
+#       （Fossen 符号约定下 X_u、Y_v、N_r 为负数；此处存阻尼正值）
+#     - 推力限幅：T200 单桨最大推力约 40 N（@16V 正向约 5.25 kgf，
+#       见 diving-rov-specialists 波浪扰动论文 Table I: T_max = 40 N）。
+#       BlueROV2 水平 4 桨 45° 矢量布置：
+#         Fx_max = Fy_max = 2 * 40 * cos(45°) ≈ 56.6 N
+#         Mz_max 由桨位置（约 ±0.16 m / ±0.11 m）估算取 12 N m（近似值）。
+#
+# 符号约定：added_mass 存附加质量绝对值（正数），即 MA = diag(added_mass)，
+# Fossen 导数记号 X_udot = -5.5 kg 对应此处 5.5。
+
+name: bluerov2_ou
+dof: 3
+mass: 11.5                       # kg，刚体质量
+added_mass: [5.5, 12.7, 0.12]    # [kg, kg, kg m^2]，|X_udot|, |Y_vdot|, |N_rdot|，对角
+inertia_z: 0.16                  # kg m^2，绕 z 轴转动惯量 Iz
+linear_damping: [4.03, 6.22, 0.07]  # [N s/m, N s/m, N m s/rad]，X_u, Y_v, N_r 正值，对角
+quadratic_damping: [13.7, 33.0, 0.8]  # v0.1 新增：[N s^2/m^2, N s^2/m^2, N m s^2/rad^2]
+# 二次阻尼（X_u|u|, Y_v|v|, N_r|r|，文献常用近似值）。
+# 加入原因（SPEC_M2 勘误 4）：纯线性阻尼下 yaw 终端转速 ~171 rad/s，
+# Coriolis 旋转耦合在显式 RK4 下持续放大 → 饱和动作 ~9.4s 数值爆炸 NaN。
+# 加入后终端速度：surge ~1.9 m/s，yaw ~3.8 rad/s（物理合理区间）。
+tau_max: [56.6, 56.6, 12.0]      # [N, N, N m]，水平面广义力限幅（推导见上方注释）
+# OU 时变洋流（SPEC_M4 §1.1/§1.2）：Ornstein–Uhlenbeck 均值回归过程。
+# 参数依据：0.3 m/s 为中层流典型量级；相关时间 1/θ = 10s ≈ 2.4× 载体
+# 纵向时间常数（τ ≈ 4.2s）——快得需要时序推断、慢得可学习
+# （提案 §8.5：常值洋流是假成功，必须时变）。seed 为 OU 独立随机流种子。
+current:
+  type: ou
+  mean: [0.3, 0.0]               # [m/s, m/s]，均值回归目标（NED）
+  theta: 0.1                     # 1/s，回归速率（相关时间 = 1/θ = 10 s）
+  sigma: 0.05                    # m/s/√s，扩散强度（稳态 std = σ/√(2θ) ≈ 0.112 m/s）
+  seed: 0                        # OU 独立随机流种子（env.reset 时按 env 种子派生）
+dt: 0.02                         # s，物理积分步长
+action_repeat: 5                 # env.step 一次 = 5 个物理步（控制周期 0.1 s）

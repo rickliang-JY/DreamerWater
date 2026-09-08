@@ -49,6 +49,25 @@ class UWEnvBase(gym.Env):
         """控制周期（s）：dt × action_repeat。"""
         return self.dt * self.action_repeat
 
+    def reset(self, *, seed=None, options=None):
+        """播种并重置洋流（SPEC_M4 §1.3）。子类 super().reset(seed=seed) 即触发。
+
+        常值流：reset_current 为 no-op，且不消耗 np_random（M0–M2 随机序列
+        逐位不变，完全向后兼容）。OU 时变流：从 np_random 派生一个 per-episode
+        种子传给 reset_current——同一 env seed 下整个 episode 序列可复现，
+        不同 episode 的洋流实现又互不相同（防止策略背下单条洋流轨迹）。
+        """
+        super().reset(seed=seed)
+        if self.fossen.ou_enabled:
+            ou_seed = int(self.np_random.integers(0, 2**31 - 1))
+            self.fossen.reset_current(seed=ou_seed)
+        else:
+            self.fossen.reset_current()
+
+    def current_truth(self) -> np.ndarray:
+        """洋流真值 [u_c, v_c]（NED，m/s，numpy float64）。仅供记录/探针，不进 obs。"""
+        return self.fossen.current.detach().cpu().numpy().astype(np.float64)
+
     def _physics_step(self, action: np.ndarray) -> None:
         """执行一次 env 步：推力饱和后做 action_repeat 次 RK4 物理积分。
 

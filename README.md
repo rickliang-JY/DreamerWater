@@ -161,3 +161,70 @@ eval 轨迹可用面板 B 回放 `runs/m2_dreamerv3_station_keeping/seed0/episod
 
 **对路线图的修正**：优先级从"P4 扫描"调整为"**先解决等效更新量**"
 （全量步数 + 标准 train_ratio，或 GPU），horizon 网格在其后。
+
+## M4：OU 时变洋流 + P2 隐状态探针
+
+- **OU 洋流**（`uwm/dynamics/fossen.py`，SPEC_M4 §1）：`current` 配置支持
+  列表（常值，默认，行为不变）与 OU 字典（`bluerov2_ou.yaml`：mean [0.3,0]、
+  θ=0.1、σ=0.05，相关时间 10s ≈ 2.4× 载体时间常数）。Euler–Maruyama 按
+  物理 dt 推进，独立 `torch.Generator` 随机流，`reset_current()` 由
+  env.reset 调用（OU 种子从 env np_random 派生：同 env seed 可复现、
+  不同 episode 洋流实现不同）。洋流**不可观测**（obs 仍 7 维），真值走
+  `info["current"]` 与 dv3 适配器的 `current_gt` 暗通道落盘——
+  encoder/decoder 的 `mlp_keys: 'state'` 保证模型在结构上看不到它
+  （`tests/test_ou_current.py` 有结构性证明）。
+- **P2 探针**（`uwm/eval/wm_probes.py --p2`）：RSSM 确定性隐状态 h_t →
+  洋流真值的 ridge 线性探针（闭式解、按 episode 划分 train/test、
+  瞬时 state 基线对照）。**判读标准：R² > 0.5 = RSSM 明确编码洋流；
+  0.1–0.5 = 弱编码；< 0.1 = 未编码**（若策略已收敛则更说明问题）。
+  这是 world model 相对 SAC 唯一的结构性优势，且不需要策略收敛即可测量。
+- 冒烟：`python scripts/train_dreamer.py configs/exp/m4_dreamerv3_ou_smoke.yaml`
+  后 `python -m uwm.eval.wm_probes runs/m4_dreamerv3_ou_smoke/seed0 --p2`。
+
+## GPU 全量复现实验指南
+
+沙箱内只做 tiny 冒烟；全量实验在 GPU 机器上按本节执行（SPEC_M4 §3）。
+
+**环境安装**（仓库根目录）：
+
+```bash
+pip install -e .[dev]                      # 本包 + 测试依赖
+pip install -r third_party/dreamerv3-torch/requirements.txt  # dv3 依赖
+# 沙箱/极简环境可改用：bash scripts/ensure_deps.sh
+```
+
+**三条命令**（或一条 `bash scripts/gpu_run_all.sh` 全包，幂等可续训）：
+
+```bash
+# ① SAC 基线：常值 + OU，各 3 seed（各 ~2-4h/120k 步，CPU 也可跑）
+for s in 0 1 2; do python scripts/train.py configs/exp/m1_sac_station_keeping.yaml --seed $s; done
+for s in 0 1 2; do python scripts/train.py configs/exp/m1_sac_station_keeping_ou.yaml --seed $s; done
+
+# ② DreamerV3 常值流 M2 全量复刻 × 3 seed（200k 步，训练后自动 convert + P1）
+for s in 0 1 2; do python scripts/train_dreamer.py configs/exp/m2_dreamerv3_gpu.yaml --seed $s; done
+
+# ③ DreamerV3 OU 时变流 M4 × 3 seed（200k 步，imag_horizon=30）+ P2 探针
+for s in 0 1 2; do
+  python scripts/train_dreamer.py configs/exp/m4_dreamerv3_ou_gpu.yaml --seed $s
+  python -m uwm.eval.wm_probes runs/m4_dreamerv3_ou/seed$s --p2
+done
+```
+
+**资源预期**（dv3 官方 dmc_proprio 标准档量级）：显存 8–12 GB，
+单卡 RTX 级别约 1–2 天/200k 步，每 seed 磁盘 2–5 GB。
+多卡并行：手工把不同 seed 分到不同进程并改配置 `device: cuda:<i>`。
+
+**预期产出清单**：
+
+| 产出 | 路径 |
+|---|---|
+| SAC 常值/OU 学习曲线与判据 | `runs/m1_sac_station_keeping*/seed<N>/` + `learning_curve_seed<N>.png` |
+| dv3 常值全量（M2 复刻）metrics/ckpt/episodes | `runs/m2_dreamerv3_gpu/seed<N>/dv3_logdir/` |
+| P1 开环想象误差（自动） | `runs/*/seed<N>/p1_imagination_error.png` |
+| dv3 OU 全量 + 洋流真值 episodes | `runs/m4_dreamerv3_ou/seed<N>/dv3_logdir/` |
+| **P2 隐状态洋流探针（主结果）** | `runs/m4_dreamerv3_ou/seed<N>/p2_probe.png` + stdout 的 r2_u/r2_v/r2_mean |
+
+**注意事项**：dv3 断点续训直接重跑同一条命令（latest.pt 自动恢复）；
+SAC 续训需 `--resume <run_dir>/ckpt/latest.pt`；训练发散有 M2 前科，
+NaN 金丝雀与 latest_prev.pt 轮转备份在位，崩溃后从最近 ckpt 续训即可；
+可选 P4 追加：改 `imag_horizon` 为 45 重跑命令③（H ∈ {15,30,45} 网格）。

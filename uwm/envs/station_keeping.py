@@ -65,7 +65,8 @@ class StationKeepingEnv(UWEnvBase):
         self._nu = torch.zeros(3, dtype=torch.float64)
         self._t = 0.0
         self._steps = 0
-        return self._get_obs(), {"t": self._t}
+        # info["current"]：洋流真值（仅供记录/探针，不进 obs，SPEC_M4 §1.3）
+        return self._get_obs(), {"t": self._t, "current": self.current_truth()}
 
     def step(self, action):
         """推进一个控制周期（dt × action_repeat 秒），返回 gymnasium 五元组。"""
@@ -79,5 +80,10 @@ class StationKeepingEnv(UWEnvBase):
         terminated = False  # v0 无终止
         truncated = self._steps >= self.max_episode_steps
         obs = self._get_obs()
-        info = {"t": self._t, "dist_to_goal": dist}
+        info = {
+            "t": self._t,
+            "dist_to_goal": dist,
+            # 洋流真值通道（仅供记录/探针；obs 7 维不含洋流，SPEC_M4 §1.3）
+            "current": self.current_truth(),
+        }
         return obs, reward, terminated, truncated, info

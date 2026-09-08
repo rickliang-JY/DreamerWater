@@ -17,6 +17,18 @@
 
 其中 nu_rel = nu - nu_c^body 为相对水流速度。v0 采用 Fossen 常值无旋流
 简化：惯性项不做精确流加速修正，C、D 中统一使用 nu_rel（见 SPEC §2.1）。
+
+v0.2（M4，SPEC_M4 §1.1）：cfg["current"] 除列表形式（常值流，行为不变）外，
+支持 Ornstein–Uhlenbeck 时变流字典形式：
+    current: {type: ou, mean: [u_c, v_c], theta: 回归速率 (1/s),
+              sigma: 扩散强度 (m/s/√s), seed: 独立随机流种子}
+OU 状态存于 self.ou_state，在每个物理步 step(dt) 内按 Euler–Maruyama 推进：
+    C ← C + theta*(mean−C)*dt + sigma*√dt*ξ,  ξ~N(0, I₂)
+（用的是物理 dt，不是 env step；env.step = action_repeat 次 fossen.step，
+洋流随每个物理子步演化）。随机流用独立 torch.Generator，与全局 RNG 及
+env 的 np_random 互不混杂，保证 seed 级可复现。reset_current() 由
+env.reset 调用：状态回到 mean 并重建随机流。下游经 self.current 读当前
+C 值（属性语义不变），零改动。
 """
 
 from __future__ import annotations
@@ -42,7 +54,7 @@ class Fossen3DOF:
     cfg 字段（见 configs/vehicle/*.yaml，SPEC §2.4）：
         mass (kg), added_mass [3] (|X_udot|,|Y_vdot|,|N_rdot|, 正数),
         inertia_z (kg m^2), linear_damping [3] (X_u,Y_v,N_r, 正数),
-        current [2] (u_c, v_c, m/s, NED)。
+        current [2] (u_c, v_c, m/s, NED) 或 OU 字典（v0.2，见模块 docstring）。
     """
 
     def __init__(self, cfg: dict):
@@ -50,7 +62,6 @@ class Fossen3DOF:
         am = [float(a) for a in cfg["added_mass"]]
         iz = float(cfg["inertia_z"])
         ld = [float(d) for d in cfg["linear_damping"]]
-        current = [float(c) for c in cfg.get("current", [0.0, 0.0])]
 
         # M = M_RB + M_A，均为对角阵（载体三面对称假设）
         self.M = torch.tensor(
@@ -67,8 +78,73 @@ class Fossen3DOF:
         # 二次阻尼系数（v0.1；缺省为 0 = 纯线性，兼容旧配置）
         qd = [float(q) for q in cfg.get("quadratic_damping", [0.0, 0.0, 0.0])]
         self.Dq = torch.tensor(qd, dtype=_DTYPE)
-        # NED 常值洋流速度 [u_c, v_c]（m/s）
-        self.current = torch.tensor(current, dtype=_DTYPE)
+
+        # 洋流（v0.2）：列表 [u_c, v_c] = 常值流（v0 行为，不变）；
+        # 字典 = OU 时变流（SPEC_M4 §1.1）。
+        current_cfg = cfg.get("current", [0.0, 0.0])
+        if isinstance(current_cfg, dict):
+            if current_cfg.get("type", "ou") != "ou":
+                raise ValueError(f"未知 current 类型: {current_cfg.get('type')!r}")
+            self.ou_enabled = True
+            self.ou_mean = torch.tensor(
+                [float(c) for c in current_cfg["mean"]], dtype=_DTYPE
+            )
+            self.ou_theta = float(current_cfg["theta"])
+            self.ou_sigma = float(current_cfg["sigma"])
+            self._ou_seed = int(current_cfg.get("seed", 0))
+            self.ou_state = self.ou_mean.clone()
+            self._ou_gen: torch.Generator | None = None
+            self.reset_current()
+            self._current_const: torch.Tensor | None = None
+        else:
+            self.ou_enabled = False
+            # NED 常值洋流速度 [u_c, v_c]（m/s）
+            self._current_const = torch.tensor(
+                [float(c) for c in current_cfg], dtype=_DTYPE
+            )
+            self.ou_mean = None
+            self.ou_theta = 0.0
+            self.ou_sigma = 0.0
+            self._ou_seed = 0
+            self.ou_state = None
+            self._ou_gen = None
+
+    @property
+    def current(self) -> torch.Tensor:
+        """当前洋流速度 C = [u_c, v_c]（NED，m/s）。常值或 OU 瞬时值，语义不变。"""
+        return self.ou_state if self.ou_enabled else self._current_const
+
+    @current.setter
+    def current(self, value) -> None:
+        """常值流模式下允许直接赋值（如交互面板滑块）；OU 模式改的是瞬时值。"""
+        value = torch.as_tensor(value, dtype=_DTYPE)
+        if self.ou_enabled:
+            self.ou_state = value.clone()
+        else:
+            self._current_const = value
+
+    def reset_current(self, seed: int | None = None) -> None:
+        """重置洋流（env.reset 时调用）。常值流为 no-op（向后兼容）。
+
+        OU 模式：状态回到 mean，并用 seed（缺省用配置的 seed）重建独立
+        torch.Generator 随机流——同 seed 的后续洋流序列逐位可复现。
+        """
+        if not self.ou_enabled:
+            return
+        self.ou_state = self.ou_mean.clone()
+        self._ou_gen = torch.Generator()
+        self._ou_gen.manual_seed(self._ou_seed if seed is None else int(seed))
+
+    def _advance_current(self, dt: float) -> None:
+        """OU 的 Euler–Maruyama 推进一个物理步 dt（常值流为 no-op）。"""
+        if not self.ou_enabled:
+            return
+        xi = torch.randn(2, generator=self._ou_gen, dtype=_DTYPE)
+        self.ou_state = (
+            self.ou_state
+            + self.ou_theta * (self.ou_mean - self.ou_state) * dt
+            + self.ou_sigma * math.sqrt(dt) * xi
+        )
 
     def C(self, nu: torch.Tensor) -> torch.Tensor:
         """Coriolis/向心矩阵 C(nu)，形状 (..., 3, 3)。
@@ -146,4 +222,7 @@ class Fossen3DOF:
         nu_new = nu + dt / 6.0 * (k1v + 2.0 * k2v + 2.0 * k3v + k4v)
         psi = _wrap_angle(eta_new[..., 2])
         eta_new = torch.cat([eta_new[..., :2], psi.unsqueeze(-1)], dim=-1)
+        # OU 时变洋流：每个物理 dt 推进一步（常值流为 no-op）。C 在单个
+        # RK4 子步内视为常值，子步间按 Euler–Maruyama 演化（SPEC_M4 §1.1）。
+        self._advance_current(dt)
         return eta_new, nu_new

@@ -63,10 +63,14 @@ def test_adapter_interface():
     """① 适配器接口：obs dict 键/形状/dtype、action 界、is_first/is_terminal、4 元组 step。"""
     env = _make_adapter()
 
-    # observation_space 只声明 "state"（SPEC_M2 §2.1）
-    assert set(env.observation_space.spaces.keys()) == {"state"}
+    # observation_space 声明 "state"（唯一模型输入，SPEC_M2 §2.1）；
+    # M4 起另声明 "current_gt" 暗通道（洋流真值，仅供 P2 探针落盘，
+    # encoder/decoder mlp_keys='state' 保证模型看不到，SPEC_M4 §1.4）
+    assert set(env.observation_space.spaces.keys()) == {"state", "current_gt"}
     state_space = env.observation_space.spaces["state"]
     assert state_space.shape == (7,) and state_space.dtype == np.float32
+    gt_space = env.observation_space.spaces["current_gt"]
+    assert gt_space.shape == (2,) and gt_space.dtype == np.float32
     assert env.action_space.shape == (3,)
     assert np.allclose(env.action_space.low, -1.0)
     assert np.allclose(env.action_space.high, 1.0)
@@ -75,7 +79,8 @@ def test_adapter_interface():
     assert obs["state"].shape == (7,) and obs["state"].dtype == np.float32
     assert obs["is_first"] is True
     assert obs["is_terminal"] is False
-    assert {"state", "image", "is_terminal", "is_first"} <= set(obs.keys())
+    assert {"state", "current_gt", "image", "is_terminal", "is_first"} <= set(obs.keys())
+    assert obs["current_gt"].shape == (2,)  # M4 暗通道（常值流 run 恒为 [0,0]）
 
     action = np.array([0.5, -0.5, 0.0], dtype=np.float32)
     out = env.step(action)

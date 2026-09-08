@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -56,8 +57,12 @@ def _resolve_logdir(logdir: str, seed: int) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
-def train(exp_path: str | Path, seed: int | None = None) -> Path:
-    """按 exp yaml 跑上游 DreamerV3 训练，返回 run_dir。"""
+def train(exp_path: str | Path, seed: int | None = None, dry_run: bool = False) -> Path:
+    """按 exp yaml 跑上游 DreamerV3 训练，返回 run_dir。
+
+    dry_run=True 时只解析到 dv3 config 构建为止（打印关键字段），不训练——
+    用于 GPU 配置的静态验证（SPEC_M4 §6）。
+    """
     exp_path = Path(exp_path)
     if not exp_path.is_absolute():
         exp_path = REPO_ROOT / exp_path
@@ -71,6 +76,31 @@ def train(exp_path: str | Path, seed: int | None = None) -> Path:
     logdir = _resolve_logdir(str(overrides["logdir"]), seed)
     overrides["logdir"] = str(logdir)
     run_dir = logdir.parent
+
+    # SPEC_M4 §3.5：载体配置经环境变量传给 dv3 适配器（本进程内设置，
+    # 子进程隔离，不影响其他进程；相对路径相对仓库根解析）。
+    vehicle = str(exp_cfg.get("vehicle", "configs/vehicle/bluerov2.yaml"))
+    vehicle_path = Path(vehicle)
+    os.environ["UWM_VEHICLE_CFG"] = str(
+        vehicle_path if vehicle_path.is_absolute() else REPO_ROOT / vehicle_path
+    )
+
+    if dry_run:
+        # 只解析到 config 构建：不落 run 目录、不建环境、不训练
+        config = build_dv3_config(overrides)
+        keys = (
+            "task", "logdir", "steps", "device", "compile", "precision",
+            "train_ratio", "batch_size", "batch_length", "prefill",
+            "eval_every", "eval_episode_num", "dyn_hidden", "dyn_deter",
+            "dyn_stoch", "dyn_discrete", "units", "imag_horizon", "seed",
+        )
+        print(f"[dry-run] exp_id={exp_id} vehicle={vehicle}")
+        for k in keys:
+            print(f"[dry-run] {k} = {getattr(config, k)}")
+        print(f"[dry-run] encoder = {config.encoder}")
+        print(f"[dry-run] decoder = {config.decoder}")
+        print(f"[dry-run] UWM_VEHICLE_CFG = {os.environ['UWM_VEHICLE_CFG']}")
+        return run_dir
 
     # run 级 config.yaml（wm_probes / convert 据此重建配置）
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -120,11 +150,13 @@ def main(argv: list[str] | None = None) -> None:
                         help="随机种子（默认取 seeds[0]）")
     parser.add_argument("--no-post", action="store_true",
                         help="跳过训练后的 convert 与 P1 探针")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="只解析到 dv3 config 构建为止，不训练（GPU 配置静态验证）")
     args = parser.parse_args(argv)
 
-    run_dir = train(args.config, args.seed)
+    run_dir = train(args.config, args.seed, dry_run=args.dry_run)
 
-    if not args.no_post:
+    if not args.no_post and not args.dry_run:
         from uwm.eval.dv3_episodes import convert_logdir
         from uwm.eval.wm_probes import run_p1
 

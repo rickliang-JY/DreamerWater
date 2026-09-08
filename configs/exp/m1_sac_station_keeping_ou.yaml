@@ -1,0 +1,22 @@
+# M4：SAC 基线 × OU 时变洋流（SPEC_M4 §3.3）
+# 与 m1_sac_station_keeping.yaml 的唯一差异：vehicle 换成 bluerov2_ou.yaml。
+# 用途：OU 环境下的 model-free 对照——SAC 无隐状态信念，理论上无法推断
+# 不可观测的时变洋流，其性能上限即"对洋流鲁棒/平均化"的策略；
+# 与 DreamerV3 OU run（含 P2 探针）对照可分离 world model 的结构性优势。
+exp_id: m1_sac_station_keeping_ou
+vehicle: configs/vehicle/bluerov2_ou.yaml
+task: {}                    # StationKeepingEnv 默认
+seeds: [0, 1, 2]
+total_steps: 120000         # 环境步（= 12000 物理秒 ÷ 0.1s/env step）
+eval_every: 10000           # 每 N 步跑一次确定性评估（10 episode）
+eval_episodes: 10
+record_ep_every: 20         # 每 20 个 episode 存一份 npz
+ckpt_every: 2000            # 每 N 步存一次 ckpt/latest.pt（分段续训用）
+sac:
+  hidden: 256
+  lr: 0.0003
+  gamma: 0.99
+  tau: 0.005
+  batch_size: 256
+  buffer_size: 200000
+  warmup_steps: 2000
