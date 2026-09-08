@@ -213,11 +213,15 @@ def _(get_proc, mo, work):
                     import csv as _csv_mod
 
                     _rows = list(_csv_mod.DictReader(open(_csv)))
+                    _agg = {}
                     for _row in _rows:
                         if _row.get("is_eval") == "1":
-                            _xs.append(int(_row["env_steps"]))
-                            _ys.append(float(_row["return_"]))
-                    _src = "SAC eval return"
+                            _agg.setdefault(int(_row["env_steps"]), []).append(
+                                float(_row["return_"])
+                            )
+                    _xs = sorted(_agg)
+                    _ys = [sum(_agg[_x]) / len(_agg[_x]) for _x in _xs]
+                    _src = "SAC eval return (mean of eval episodes)"
                     if _rows:
                         _progress = (
                             f"当前训练进度：**{_rows[-1]['env_steps']} 步**，"
@@ -233,7 +237,8 @@ def _(get_proc, mo, work):
             _ax.plot(_xs, _ys, "o-", ms=3)
             _ax.set_xlabel("env steps")
             _ax.set_ylabel("eval return")
-            _ax.set_title(f"{_src} — {_cur['stage']} seed{_cur['seed']}")
+            _stage_ascii = _cur["stage"].encode("ascii", "replace").decode()
+            _ax.set_title(f"{_src} -- seed{_cur['seed']}")
             _ax.grid(alpha=0.3)
             _f.tight_layout()
             _fig_out = _f
